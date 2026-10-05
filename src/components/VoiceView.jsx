@@ -28,6 +28,7 @@ import { ANIMAL_CHARACTERS } from './animalCharacters'
 const AnimalPlayground = lazy(() => import('./AnimalPlayground'))
 
 const REALTIME_CALL_URL = 'https://api.openai.com/v1/realtime/calls'
+const VOICE_SESSION_URL = import.meta.env.VITE_VOICE_SESSION_URL || '/api/voice/session'
 const QUICK_ACTIVITIES = [
   { label: 'Tell a story', prompt: 'Tell me a short, child-friendly adventure story with a happy ending.' },
   { label: 'Ask a question', prompt: 'I would like to ask you a question. Ask me what I am curious about and wait for my question.' },
@@ -255,12 +256,18 @@ export default function VoiceView() {
     setConversation([])
 
     try {
-      const sessionResponse = await fetch('https://ai-buddy-backend-ten.vercel.app/api/voice/session', {
+      const sessionResponse = await fetch(VOICE_SESSION_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ instructions: getChildInstructions(classId), speed: speechSpeed })
       })
-      const session = await sessionResponse.json()
+      const sessionText = await sessionResponse.text()
+      let session
+      try {
+        session = sessionText ? JSON.parse(sessionText) : {}
+      } catch {
+        session = { error: sessionText || 'Voice session endpoint returned an invalid response' }
+      }
 
       if (!sessionResponse.ok) {
         throw new Error(session.error || 'Failed to create voice session')
