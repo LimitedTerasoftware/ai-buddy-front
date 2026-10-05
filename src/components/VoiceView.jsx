@@ -255,7 +255,7 @@ export default function VoiceView() {
     setConversation([])
 
     try {
-      const sessionResponse = await fetch('http://localhost:3001/api/voice/session', {
+      const sessionResponse = await fetch('https://ai-buddy-backend-ten.vercel.app/api/voice/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ instructions: getChildInstructions(classId), speed: speechSpeed })
