@@ -1,0 +1,19 @@
+.animal-picker { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 0.5rem; }
+.animal-picker button { display: grid; justify-items: center; align-content: center; gap: 0.45rem; min-width: 0; min-height: 94px; padding: 0.65rem 0.25rem; background: #fff; border: 2px solid #e2e8f0; border-radius: 8px; color: #475569; font: inherit; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
+.animal-picker button:hover { background: #ecfdf5; border-color: #9bd9c5; }
+.animal-picker button.selected { background: #eff6ff; border-color: #2563eb; color: #2563eb; }
+.animal-picker button:focus-visible, .animal-preview-tools button:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+.animal-picker-icon { font-size: 2rem; line-height: 1.15; }
+.animal-scene { position: relative; width: 100%; height: 350px; display: grid; place-items: center; }
+.animal-scene canvas { display: block; width: 100%; height: 100%; }
+.animal-fallback { font-size: 7rem; }
+.animal-preview-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; padding: 0.75rem 0 1rem; border-bottom: 1px solid #e2e8f0; }
+.animal-preview-footer > div:first-child { display: grid; gap: 0.3rem; }
+.animal-preview-footer strong { color: #263449; font-size: 1.15rem; }
+.animal-preview-footer span { font-size: 0.88rem; color: #64748b; }
+.animal-preview-tools { display: flex; gap: 0.5rem; }
+.animal-preview-tools button { display: grid; place-items: center; width: 44px; height: 44px; background: #fff; border: 1px solid #dce8ff; border-radius: 8px; color: #2563eb; cursor: pointer; }
+.animal-preview-tools button:disabled { opacity: 0.4; cursor: not-allowed; }
+.animal-audio-error { color: #b91c1c; font-size: 0.85rem; }
+@media (max-width: 1100px) { .animal-picker { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .animal-picker { grid-template-columns: repeat(3, minmax(0, 1fr)); } .animal-scene { height: 300px; } }
