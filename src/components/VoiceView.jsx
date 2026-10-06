@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import { CLASS_LEVELS, STORY_TOPICS, getChildInstructions, getStoryPrompt } from './voiceLearning'
 import { ANIMAL_CHARACTERS } from './animalCharacters'
+import { getVoiceCommand } from './voiceCommands'
 
 const AnimalPlayground = lazy(() => import('./AnimalPlayground'))
 
@@ -82,6 +83,10 @@ export default function VoiceView() {
   const [displayName, setDisplayName] = useState(() => {
     try { return sessionStorage.getItem('ai-buddy-name')?.trim().slice(0, 48) || '' } catch { return '' }
   })
+  const [greeting] = useState(() => {
+    const hour = new Date().getHours()
+    return hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+  })
   const [loginName, setLoginName] = useState('')
   const [loginError, setLoginError] = useState('')
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -111,7 +116,15 @@ export default function VoiceView() {
   const streamRef = useRef(null)
   const dataChannelRef = useRef(null)
   const audioRef = useRef(null)
+  const transcriptRef = useRef(null)
   const conversationEndRef = useRef(null)
+  const recognitionRef = useRef(null)
+  const recognitionTimerRef = useRef(null)
+  const sessionAttemptRef = useRef(0)
+  const sessionAbortRef = useRef(null)
+  const [isWakeListening, setIsWakeListening] = useState(false)
+  const [voiceNotice, setVoiceNotice] = useState('')
+  const [supportsVoiceStart] = useState(() => !!(window.SpeechRecognition || window.webkitSpeechRecognition))
 
   useEffect(() => {
     if (!isMenuOpen) return
@@ -139,10 +152,34 @@ export default function VoiceView() {
   }, [isMenuOpen])
 
   useEffect(() => {
+    if (!conversation.length) return
+    const transcript = transcriptRef.current
+    if (transcript) {
+      transcript.scrollTop = transcript.scrollHeight
+      return
+    }
     conversationEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [conversation])
 
+  useEffect(() => {
+    const previousRestoration = window.history.scrollRestoration
+    window.history.scrollRestoration = 'manual'
+    window.scrollTo({ top: 0, left: 0 })
+    return () => {
+      window.history.scrollRestoration = previousRestoration
+    }
+  }, [])
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0 })
+  }, [activeView])
+
   useEffect(() => () => {
+    sessionAttemptRef.current += 1
+    sessionAbortRef.current?.abort()
+    clearTimeout(recognitionTimerRef.current)
+    recognitionRef.current?.abort()
+    window.speechSynthesis?.cancel()
     dataChannelRef.current?.close()
     pcRef.current?.close()
     streamRef.current?.getTracks().forEach(track => track.stop())
@@ -157,7 +194,7 @@ export default function VoiceView() {
         session: {
           type: 'realtime',
           instructions: getChildInstructions(classId),
-          audio: { output: { speed: speechSpeed }, input: { turn_detection: { type: 'semantic_vad', eagerness: 'low' } } }
+          audio: { output: { speed: speechSpeed }, input: { transcription: { model: 'gpt-4o-mini-transcribe' }, turn_detection: { type: 'semantic_vad', eagerness: 'low' } } }
         }
       }))
     }
@@ -183,6 +220,11 @@ export default function VoiceView() {
   }
 
   const stopSession = () => {
+    sessionAttemptRef.current += 1
+    sessionAbortRef.current?.abort()
+    cancelVoiceStart()
+    window.speechSynthesis?.cancel()
+    setVoiceNotice('All done. Your microphone is off.')
     dataChannelRef.current?.close()
     pcRef.current?.close()
     streamRef.current?.getTracks().forEach(track => track.stop())
@@ -198,6 +240,88 @@ export default function VoiceView() {
     storyRequestRef.current = null
     setActiveStoryTitle('')
     if (audioRef.current) audioRef.current.srcObject = null
+  }
+
+  const cancelVoiceStart = () => {
+    clearTimeout(recognitionTimerRef.current)
+    const recognition = recognitionRef.current
+    recognitionRef.current = null
+    recognition?.abort()
+    setIsWakeListening(false)
+    setVoiceNotice('')
+  }
+
+  const listenForStart = () => {
+    if (recognitionRef.current || status !== 'idle') return
+    window.speechSynthesis?.cancel()
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!Recognition) return
+    const recognition = new Recognition()
+    recognitionRef.current = recognition
+    recognition.lang = 'en-IN'
+    recognition.continuous = true
+    recognition.interimResults = false
+    let shouldStart = false
+    setVoiceNotice('')
+    recognition.onstart = () => {
+      if (recognitionRef.current !== recognition) return
+      setIsWakeListening(true)
+      setVoiceNotice('Say "Hello Buddy". I am listening.')
+    }
+    recognition.onresult = event => {
+      if (recognitionRef.current !== recognition) return
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        if (!event.results[index].isFinal) continue
+        const command = getVoiceCommand(event.results[index][0].transcript, character.name)
+        if (command === 'start') {
+          shouldStart = true
+          recognition.stop()
+          return
+        }
+        if (command === 'stop') {
+          cancelVoiceStart()
+          setVoiceNotice('All done. Your microphone is off.')
+          return
+        }
+      }
+    }
+    recognition.onerror = event => {
+      if (recognitionRef.current !== recognition) return
+      shouldStart = false
+      setVoiceNotice(event.error === 'not-allowed'
+        ? 'Ask a grown-up to allow the microphone, then try again.'
+        : 'I could not hear you. Try again or tap Let\'s talk.')
+    }
+    recognition.onend = () => {
+      if (recognitionRef.current !== recognition) return
+      clearTimeout(recognitionTimerRef.current)
+      recognitionRef.current = null
+      setIsWakeListening(false)
+      if (shouldStart) startSession()
+      else setVoiceNotice(previous => previous === 'Say "Hello Buddy". I am listening.' ? 'Tap Let\'s talk when you are ready.' : previous)
+    }
+    try {
+      recognition.start()
+      recognitionTimerRef.current = setTimeout(() => {
+        if (recognitionRef.current !== recognition) return
+        cancelVoiceStart()
+        setVoiceNotice('Tap Let\'s talk when you are ready.')
+      }, 15000)
+    } catch {
+      cancelVoiceStart()
+      setVoiceNotice('Tap Let\'s talk to begin.')
+    }
+  }
+
+  const speakHelp = () => {
+    cancelVoiceStart()
+    window.speechSynthesis.cancel()
+    const help = new SpeechSynthesisUtterance(supportsVoiceStart
+      ? 'Hello! Tap Let\'s talk to talk with me. Or tap Say Hello Buddy, and say Hello Buddy. When you are finished, say Stop Buddy or All done.'
+      : 'Hello! Tap Let\'s talk to talk with me. When you are finished, say Stop Buddy or All done.')
+    help.lang = 'en-IN'
+    help.rate = 0.85
+    window.speechSynthesis.speak(help)
   }
 
   const toggleMute = () => {
@@ -250,18 +374,26 @@ export default function VoiceView() {
   }
 
   const startSession = async (initialPrompt = null, story = null) => {
-    if (status !== 'idle') return
+    if (status !== 'idle' || sessionAbortRef.current && !sessionAbortRef.current.signal.aborted) return
+    cancelVoiceStart()
+    window.speechSynthesis?.cancel()
+    const attempt = ++sessionAttemptRef.current
+    const controller = new AbortController()
+    sessionAbortRef.current = controller
+    setVoiceNotice('')
     setStatus('connecting')
     setError('')
     setConversation([])
 
     try {
       const sessionResponse = await fetch(VOICE_SESSION_URL, {
+        signal: controller.signal,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ instructions: getChildInstructions(classId), speed: speechSpeed })
       })
       const sessionText = await sessionResponse.text()
+      if (sessionAttemptRef.current !== attempt) return
       let session
       try {
         session = sessionText ? JSON.parse(sessionText) : {}
@@ -289,27 +421,39 @@ export default function VoiceView() {
       }
 
       pc.onconnectionstatechange = () => {
+        if (sessionAttemptRef.current !== attempt) return
         if (pc.connectionState === 'connected') setStatus('connected')
         if (['failed', 'closed', 'disconnected'].includes(pc.connectionState) && pcRef.current === pc) stopSession()
       }
 
       const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      if (sessionAttemptRef.current !== attempt) {
+        mediaStream.getTracks().forEach(track => track.stop())
+        return
+      }
       streamRef.current = mediaStream
       mediaStream.getTracks().forEach(track => pc.addTrack(track, mediaStream))
 
       const dataChannel = pc.createDataChannel('oai-events')
       dataChannelRef.current = dataChannel
       dataChannel.onopen = () => {
+        if (sessionAttemptRef.current !== attempt) return
+        dataChannel.send(JSON.stringify({ type: 'session.update', session: {
+          type: 'realtime',
+          audio: { input: { transcription: { model: 'gpt-4o-mini-transcribe' } } }
+        } }))
         setIsChannelReady(true)
-        if (initialPrompt) sendActivity(initialPrompt, story)
+        sendActivity(initialPrompt || 'Greet me warmly in one short sentence. Tell me I can say "Stop Buddy" or "All done" to finish, then ask what I would like to do and wait.', story)
       }
       dataChannel.onclose = () => {
+        if (sessionAttemptRef.current !== attempt) return
         setIsChannelReady(false)
         setIsResponding(false)
         setIsAudioPlaying(false)
         responsePendingRef.current = false
       }
       dataChannel.onmessage = (event) => {
+        if (sessionAttemptRef.current !== attempt) return
         try {
           const payload = JSON.parse(event.data)
           const itemId = payload.item_id || payload.response_id || 'current'
@@ -357,6 +501,14 @@ export default function VoiceView() {
           }
           if (payload.type === 'conversation.item.input_audio_transcription.completed') {
             updateTranscript(itemId, 'user', payload.transcript, true, true)
+            if (getVoiceCommand(payload.transcript, character.name) === 'stop') {
+              stopSession()
+              setVoiceNotice('All done. Your microphone is off.')
+              return
+            }
+          }
+          if (payload.type === 'conversation.item.input_audio_transcription.failed') {
+            setVoiceNotice('Use All done to finish. I could not hear your words clearly.')
           }
           if (payload.type === 'response.output_audio_transcript.delta') {
             updateTranscript(itemId, 'assistant', payload.delta)
@@ -389,6 +541,7 @@ export default function VoiceView() {
       formData.append('sdp', offer.sdp)
 
       const realtimeResponse = await fetch(REALTIME_CALL_URL, {
+        signal: controller.signal,
         method: 'POST',
         headers: {
           Authorization: `Bearer ${ephemeralKey}`
@@ -397,13 +550,16 @@ export default function VoiceView() {
       })
 
       const answerSdp = await realtimeResponse.text()
+      if (sessionAttemptRef.current !== attempt) return
       if (!realtimeResponse.ok) {
         throw new Error(answerSdp || 'Realtime WebRTC call failed')
       }
 
       await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp })
+      if (sessionAttemptRef.current !== attempt) return
       setStatus('connected')
     } catch (err) {
+      if (sessionAttemptRef.current !== attempt) return
       console.error('Voice session error', err)
       setError(err.message || 'Failed to start voice session')
       stopSession()
@@ -424,9 +580,6 @@ export default function VoiceView() {
 
   const statusLabel = isConnecting ? 'Connecting' : isConnected ? (isAudioPlaying ? `${character.name} is speaking` : isMuted ? 'Listening paused' : 'Live voice session') : 'Ready to start'
   const statusTone = isConnected ? 'online' : isConnecting ? 'pending' : 'idle'
-  const hour = new Date().getHours()
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
-
   const openLogin = () => {
     setLoginName('')
     setLoginError('')
@@ -476,13 +629,13 @@ export default function VoiceView() {
       <audio ref={audioRef} autoPlay />
 
       {isMenuOpen && <button className="voice-menu-backdrop" aria-label="Close navigation" onClick={() => setIsMenuOpen(false)} />}
-      <aside ref={sidebarRef} id="buddy-navigation" className={`voice-sidebar ${isMenuOpen ? 'open' : ''}`} aria-label="AI Buddy sidebar">
+      <aside ref={sidebarRef} id="buddy-navigation" className={`voice-sidebar ${isMenuOpen ? 'open' : ''}`} aria-label="Tera Buddy sidebar">
         <div className="voice-brand">
           <div className="voice-brand-mark"><BrainCircuit size={20} /></div>
-          <strong>AI Buddy</strong>
+          <strong>Tera Buddy</strong>
           <button className="voice-icon-button voice-mobile-close" aria-label="Close navigation" onClick={() => setIsMenuOpen(false)}><X size={20} /></button>
         </div>
-        <nav className="voice-menu" aria-label="AI Buddy navigation">
+        <nav className="voice-menu" aria-label="Tera Buddy navigation">
           {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
             <button key={id} type="button" className={activeView === id ? 'active' : ''} aria-current={activeView === id ? 'page' : undefined} onClick={() => { setActiveView(id); setIsMenuOpen(false) }}>
               <Icon size={18} /> <span>{label}</span>
@@ -492,7 +645,7 @@ export default function VoiceView() {
         <div className="voice-sidebar-footer">
           <div className="voice-account-summary">
             <span className="voice-profile-avatar">{displayName ? Array.from(displayName)[0].toUpperCase() : <User size={18} />}</span>
-            <div><strong>{displayName || 'Guest'}</strong><span>{displayName ? 'Your learning space' : 'Welcome to AI Buddy'}</span></div>
+            <div><strong>{displayName || 'Guest'}</strong><span>{displayName ? 'Your learning space' : 'Welcome to Tera Buddy'}</span></div>
           </div>
           <button className="voice-account-button" disabled={isConnecting} onClick={displayName ? logout : openLogin}>
             {displayName ? <LogOut size={18} /> : <LogIn size={18} />}{displayName ? 'Log out' : 'Log in'}
@@ -503,8 +656,8 @@ export default function VoiceView() {
       <section className="voice-dashboard">
         <header className="voice-dashboard-header">
           <div>
-            <div className="voice-mobile-heading"><button className="voice-icon-button voice-menu-toggle" aria-label="Open navigation" aria-expanded={isMenuOpen} aria-controls="buddy-navigation" onClick={() => setIsMenuOpen(true)}><Menu size={20} /></button><span>AI Buddy</span></div>
-            <p>{displayName ? `${greeting}, ${displayName}` : 'Welcome to AI Buddy'}</p>
+            <div className="voice-mobile-heading"><button className="voice-icon-button voice-menu-toggle" aria-label="Open navigation" aria-expanded={isMenuOpen} aria-controls="buddy-navigation" onClick={() => setIsMenuOpen(true)}><Menu size={20} /></button><span>Tera Buddy</span></div>
+            <p>{displayName ? `${greeting}, ${displayName}` : 'Welcome to Tera Buddy'}</p>
             <h2>{activeView === 'home' ? 'What would you like to do today?' : NAV_ITEMS.find(item => item.id === activeView).label}</h2>
           </div>
           <div className="voice-profile">
@@ -539,7 +692,7 @@ export default function VoiceView() {
           <span className="voice-pill"><Heart size={14} /> {selectedClass.label} learning</span>
         </div>
 
-        {activeView === 'home' && <div className="voice-home-links">
+        {activeView === 'home' && <div className="voice-home-links voice-home-actions">
           <button onClick={() => setActiveView('stories')}><Sparkles size={22} /><strong>Story time</strong><span>Little adventures with Buddy</span></button>
           <button onClick={() => setActiveView('voice')}><Mic size={22} /><strong>Talk with Buddy</strong><span>What's on your mind?</span></button>
           <button onClick={() => setActiveView('activities')}><Gamepad2 size={22} /><strong>Let's learn</strong><span>Words, numbers, and patterns</span></button>
@@ -595,7 +748,7 @@ export default function VoiceView() {
           </div>
         )}
 
-        {!['progress', 'characters'].includes(activeView) && <div className="voice-content-grid">
+        {!['progress', 'characters'].includes(activeView) && <div className="voice-content-grid voice-main-grid">
           <section className="voice-control-card">
             <div className="voice-card-heading">
               <span className="voice-card-icon"><Volume2 size={21} /></span>
@@ -621,7 +774,7 @@ export default function VoiceView() {
               {!isConnected ? (
                 <button className="voice-primary-btn" onClick={() => startSession()} disabled={isConnecting}>
                   {isConnecting ? <Loader size={18} className="voice-spin" /> : <PhoneCall size={18} />}
-                  {isConnecting ? 'Connecting' : 'Start Voice'}
+                  {isConnecting ? 'Connecting' : "Let's talk"}
                 </button>
               ) : (
                 <>
@@ -630,10 +783,24 @@ export default function VoiceView() {
                     {isMuted ? 'Unmute' : 'Mute'}
                   </button>
                   <button className="voice-danger-btn" onClick={stopSession}>
-                    <PhoneOff size={18} /> End
+                    <PhoneOff size={18} /> All done
                   </button>
                 </>
               )}
+              {isConnecting && <button className="voice-danger-btn" onClick={stopSession}><X size={18} /> Cancel</button>}
+              {!isConnected && !isConnecting && supportsVoiceStart && (
+                <button className="voice-secondary-btn" onClick={isWakeListening ? cancelVoiceStart : listenForStart} aria-pressed={isWakeListening}>
+                  {isWakeListening ? <MicOff size={20} /> : <Mic size={20} />}
+                  {isWakeListening ? 'All done' : 'Say "Hello Buddy"'}
+                </button>
+              )}
+              {!isConnected && !isConnecting && window.speechSynthesis && (
+                <button className="voice-secondary-btn" onClick={speakHelp} title="Hear how to talk with Buddy"><Volume2 size={20} /> Hear help</button>
+              )}
+            </div>
+
+            <div className="voice-command-status" role="status" aria-live="polite">
+              {voiceNotice || (isConnected ? (isMuted ? 'Your microphone is paused.' : 'I am listening.') : '')}
             </div>
 
             <div className="voice-quick-actions">
@@ -643,7 +810,7 @@ export default function VoiceView() {
                   type="button"
                   onClick={() => activity.label === 'Tell a story' ? setActiveView('stories') : runActivity(activity.prompt)}
                   disabled={activity.label === 'Tell a story' ? false : activityDisabled}
-                  title={isResponding || isAudioPlaying ? 'AI Buddy is responding' : activity.label}
+                  title={isResponding || isAudioPlaying ? 'Tera Buddy is responding' : activity.label}
                 >
                   {activity.label}
                 </button>
@@ -659,7 +826,7 @@ export default function VoiceView() {
                 <p>Our words and stories</p>
               </div>
             </div>
-            <div className="voice-transcript">
+            <div className="voice-transcript" ref={transcriptRef}>
               {conversation.length === 0 ? (
                 <div className="voice-empty-chat">
                   <Bot size={28} />
@@ -704,6 +871,11 @@ export default function VoiceView() {
           min-height: 100vh;
           min-height: 100dvh;
           color: #1d2b5c;
+          background:
+            linear-gradient(90deg, rgba(37, 99, 235, 0.035) 1px, transparent 1px),
+            linear-gradient(180deg, rgba(20, 184, 166, 0.035) 1px, transparent 1px),
+            #f5f8ff;
+          background-size: 34px 34px;
         }
         .voice-control-card,
         .voice-chat-card {
@@ -900,7 +1072,7 @@ export default function VoiceView() {
         }
         .voice-dashboard {
           padding: 1.5rem 2rem;
-          background: #f5f8ff;
+          background: transparent;
         }
         .voice-dashboard-header {
           display: flex;
@@ -971,9 +1143,40 @@ export default function VoiceView() {
           padding: 1.4rem 1.6rem;
           margin-bottom: 1rem;
           background:
-            radial-gradient(circle at 78% 24%, rgba(255, 237, 213, 0.95), transparent 27%),
-            radial-gradient(circle at 88% 84%, rgba(191, 219, 254, 0.95), transparent 30%),
-            linear-gradient(135deg, #bfe4ff 0%, #eef8ff 50%, #fff7ed 100%);
+            linear-gradient(90deg, rgba(255,255,255,0.46) 1px, transparent 1px),
+            linear-gradient(180deg, rgba(255,255,255,0.46) 1px, transparent 1px),
+            linear-gradient(135deg, #c7ecff 0%, #eef8ff 46%, #fff2c2 100%);
+          background-size: 24px 24px, 24px 24px, auto;
+        }
+        .voice-hero::before,
+        .voice-hero::after {
+          content: '';
+          position: absolute;
+          pointer-events: none;
+          opacity: 0.7;
+        }
+        .voice-hero::before {
+          width: 74px;
+          height: 74px;
+          right: 34px;
+          top: 18px;
+          background:
+            linear-gradient(45deg, transparent 43%, #f59e0b 43% 57%, transparent 57%),
+            linear-gradient(-45deg, transparent 43%, #f59e0b 43% 57%, transparent 57%);
+        }
+        .voice-hero::after {
+          width: 92px;
+          height: 18px;
+          right: 230px;
+          bottom: 24px;
+          border-top: 4px solid #14b8a6;
+          border-bottom: 4px solid #ef4444;
+          transform: rotate(-8deg);
+        }
+        .voice-hero-copy,
+        .buddy-stage {
+          position: relative;
+          z-index: 1;
         }
         .voice-pill {
           display: inline-flex;
@@ -1198,10 +1401,18 @@ export default function VoiceView() {
           flex-wrap: wrap;
           margin: 1rem 0;
         }
+        .voice-command-status {
+          color: #0f766e;
+          font-weight: 600;
+          line-height: 1.5;
+          margin-bottom: 0.75rem;
+          overflow-wrap: anywhere;
+        }
+        .voice-command-status:empty { display: none; }
         .voice-primary-btn,
         .voice-secondary-btn,
         .voice-danger-btn {
-          min-height: 42px;
+          min-height: 48px;
           border: 0;
           border-radius: 8px;
           display: inline-flex;
@@ -1375,18 +1586,107 @@ export default function VoiceView() {
           .voice-mobile-close { margin-left: auto; }
           .voice-mobile-heading { display: flex; gap: 0.65rem; align-items: center; color: #2563eb; font-weight: 800; margin-bottom: 1rem; }
           .voice-profile { max-width: 100%; }
+          .voice-dashboard {
+            display: flex;
+            flex-direction: column;
+            gap: 0.85rem;
+          }
+          .voice-dashboard-header {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            margin: -1.25rem -1rem 0;
+            padding: 1rem;
+            background: rgba(245, 248, 255, 0.96);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+          }
+          .voice-main-grid { order: 2; }
+          .voice-hero { order: 3; margin-bottom: 0; min-height: 0; }
+          .voice-learning-settings { order: 4; padding: 0; }
+          .voice-home-actions { order: 5; }
+          .voice-control-card {
+            display: grid;
+            gap: 0.85rem;
+            min-height: 0;
+          }
+          .voice-control-card .voice-card-heading { margin-bottom: 0; }
+          .voice-actions {
+            order: -1;
+            margin: 0;
+          }
+          .voice-actions .voice-primary-btn,
+          .voice-actions .voice-secondary-btn,
+          .voice-actions .voice-danger-btn {
+            flex: 1 1 140px;
+            min-height: 52px;
+            font-size: 1rem;
+          }
+          .voice-status-orb {
+            min-height: 112px;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            justify-items: start;
+            text-align: left;
+            padding: 0.85rem;
+          }
+          .voice-live-character {
+            width: 84px;
+            height: 82px;
+          }
+          .voice-status-orb .buddy-avatar {
+            transform: scale(0.62);
+          }
+          .voice-quick-actions {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+          }
+          .voice-quick-actions button {
+            min-height: 58px;
+            padding: 0.45rem;
+          }
+          .voice-chat-card {
+            min-height: 0;
+          }
+          .voice-empty-chat {
+            min-height: 170px;
+          }
         }
         @media (max-width: 480px) {
           .voice-dashboard { padding: 0.8rem; }
           .voice-story-grid,
           .voice-home-links { grid-template-columns: 1fr; }
           .voice-control-card,
-          .voice-chat-card { padding: 0.8rem; }
+          .voice-chat-card { padding: 0.8rem; min-height: 0; }
           .voice-learning-settings label { width: 100%; }
           .voice-learning-settings select { width: 100%; }
           .voice-section-heading { flex-wrap: wrap; }
           .voice-story-playbar strong { overflow-wrap: anywhere; }
-          .voice-hero h3 { overflow-wrap: anywhere; }
+          .voice-dashboard-header {
+            margin: -0.8rem -0.8rem 0;
+            padding: 0.85rem;
+          }
+          .voice-hero {
+            grid-template-columns: minmax(0, 1fr) 118px;
+            gap: 0.4rem;
+          }
+          .voice-hero h3 {
+            overflow-wrap: anywhere;
+            font-size: 1.45rem;
+          }
+          .voice-hero p {
+            font-size: 0.95rem;
+          }
+          .voice-hero .buddy-avatar {
+            transform: scale(0.74);
+          }
+          .buddy-stage {
+            min-height: 122px;
+          }
+          .voice-quick-actions {
+            grid-template-columns: 1fr;
+          }
+          .voice-empty-chat {
+            min-height: 150px;
+          }
         }
         .voice-cursor {
           display: inline-block;
