@@ -14,6 +14,8 @@ dist-ssr
 .env
 .env.*
 !.env.example
+.voice-data/
+.tmp/npm-cache/
 
 # Editor directories and files
 .vscode/*

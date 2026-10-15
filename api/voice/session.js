@@ -5,7 +5,7 @@ import {
   parseSpeed,
   readJson,
   setCorsHeaders
-} from './_realtimeSession.js'
+} from '../../server/voice/realtimeSession.js'
 
 export default async function handler(req, res) {
   setCorsHeaders(req, res)

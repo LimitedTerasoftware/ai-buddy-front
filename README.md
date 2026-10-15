@@ -1,5 +1,13 @@
 # React + Vite
 
+## Device voice APIs
+
+For **Vercel-only WAV upload**, production environment settings and Bash/PowerShell curl examples: [Deploy and test WAV on Vercel](docs/vercel-wav.md). No separate voice server is needed for independent uploads.
+
+Push-to-talk and streaming WebSocket implementation, setup, authenticated curl examples, audio contract, deployment, and prototype limits: [Device voice API documentation](docs/voice-api.md).
+
+Run `npm run voice:server` for the shared device backend and `npm run dev` for the console. Configure credentials using `.env.example` first. Run `npm test` to verify the voice contract without calling model providers.
+
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 
 Currently, two official plugins are available:

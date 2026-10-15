@@ -10,9 +10,11 @@ const WEBSOCKET_BASE_URL = 'wss://api.openai.com/v1/realtime'
 export function setCorsHeaders(req, res) {
   const origin = req.headers.origin
   const allowedOrigins = [
-    process.env.FRONTEND_ORIGIN,
+    ...(process.env.FRONTEND_ORIGIN || '').split(',').map(value => value.trim()),
     process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '',
-    'https://ai-buddy-backend-ten.vercel.app',
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '',
+    'https://ai-buddy-two-iota.vercel.app',
+    'http://localhost:5173',
     'http://127.0.0.1:5173'
   ].filter(Boolean)
 

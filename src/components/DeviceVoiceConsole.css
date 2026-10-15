@@ -1,0 +1,18 @@
+.device-console { max-width: 1000px; margin: 24px auto; padding: 24px; background: #fff; color: #233048; border-radius: 18px; font-family: system-ui, sans-serif; }
+.device-console h1 { font-size: 28px; margin-bottom: 12px; }
+.device-console h2 { margin: 28px 0 12px; font-size: 20px; }
+.device-console p { margin: 12px 0; }
+.device-console-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: end; }
+.device-console label { display: block; margin: 8px 0; font-size: 14px; }
+.device-console input:not([type=checkbox]), .device-console select, .device-console textarea { display: block; width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #a4b1c4; border-radius: 8px; background: white; color: #233048; }
+.device-console textarea { min-height: 100px; }
+.device-console input[type=checkbox] { margin-right: 8px; }
+.device-console button { padding: 10px 14px; border: 1px solid #375ec0; border-radius: 8px; background: #edf2ff; color: #233f80; cursor: pointer; }
+.device-console button:disabled { opacity: .5; cursor: default; }
+.device-console-wide { grid-column: 1 / -1; }
+.device-console-actions, .device-console-memory { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0; }
+.device-console-memory span { flex: 1; }
+.device-console pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f3f5f9; padding: 12px; max-height: 400px; overflow: auto; }
+.device-console-error { color: #a01925; }
+.device-console ul { padding-left: 24px; }
+@media (max-width: 600px) { .device-console-grid { grid-template-columns: 1fr; } .device-console { padding: 16px; } }
