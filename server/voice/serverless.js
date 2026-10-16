@@ -2,12 +2,14 @@ import { VoiceCore, DEFAULT_CHARACTER, PERSONALITIES, SKILLS } from './core.js'
 import { VoiceStore } from './store.js'
 import { createOpenAIProvider } from './provider.js'
 import { VoiceError, authenticate, verifyToken, readBody, decodeAudio } from './protocol.js'
+import { createVercelWebSocketSession, hasStreamStorage } from './vercelStream.js'
 
 // Every invocation owns its state. Never rely on a warm function for continuity.
 export async function handleServerlessVoice(req, res, path, env = process.env, provider) {
   if (path === '/api/voice/health') {
     return res.status(200).json({ status: 'ok', mode: 'stateless', protocol_version: '1',
-      capabilities: { wav_upload: true, sessions: false, memory: false, websocket: false, idempotency: false } })
+      capabilities: { wav_upload: true, sessions: false, memory: false, websocket: hasStreamStorage(env), idempotency: false },
+      websocket_session_persistence: 'connection' })
   }
   let devices, admins
   try {
@@ -26,14 +28,14 @@ export async function handleServerlessVoice(req, res, path, env = process.env, p
     if (path !== '/api/voice/admin' || req.method !== 'GET') {
       throw new VoiceError('generation_failed', 'Saved character settings and memory require a persistent voice backend.', 503)
     }
-    return res.status(200).json({ mode: 'stateless', characters: [DEFAULT_CHARACTER],
+      return res.status(200).json({ mode: 'stateless', capabilities: { websocket: hasStreamStorage(env) }, characters: [DEFAULT_CHARACTER],
       personalities: Object.keys(PERSONALITIES), skills: Object.keys(SKILLS), turns: [],
       devices: devices.filter(device => device.tenant_id === admin.tenant_id).map(device => ({
         device_id: device.device_id, profile_ids: device.profile_ids, character_ids: device.character_ids, revoked: !!device.revoked
       })) })
   }
   const device = authenticate(req.headers, devices)
-  if (path === '/api/voice/websocket') throw new VoiceError('generation_failed', 'Device WebSockets require a persistent VOICE_SERVICE_URL. Use push-to-talk for Vercel-only WAV uploads.', 503)
+  if (path === '/api/voice/websocket') return res.status(200).json(await createVercelWebSocketSession(req, device, devices, env))
   if (!env.OPENAI_API_KEY && !provider) throw new VoiceError('generation_failed', 'Configure OPENAI_API_KEY on Vercel.', 503)
   const body = await readBody(req)
   if (body.session_id) throw new VoiceError('session_expired', 'Vercel-only uploads are independent turns. Omit session_id.', 409, true)

@@ -4,6 +4,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
+    "api/voice/stream.js": { "maxDuration": 300 },
     "api/voice/**/*.js": { "maxDuration": 120 }
   }
 }

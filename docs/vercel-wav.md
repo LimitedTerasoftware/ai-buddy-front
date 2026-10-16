@@ -78,7 +78,7 @@ A successful response has `status: "completed"`, `transcript_text`, `response_te
 python -c "import json,base64,wave; r=json.load(open('response.json')); a=r['response_audio']; w=wave.open('reply.wav','wb'); w.setnchannels(a['channels']); w.setsampwidth(2); w.setframerate(a['sample_rate_hz']); w.writeframes(base64.b64decode(a['data'])); w.close()"
 ```
 
-In the web app choose **Device voice console → Test WAV upload only**, enter your device credential, `device-1`, `profile-1`, and select the WAV. The console plays the response.
+In the web app choose **Device voice console → Test device audio**, enter your device credential, `device-1`, `profile-1`, and select the WAV. The console plays the response.
 
 ## Vercel-only behavior
 
@@ -86,6 +86,6 @@ Each request is an independent turn with the default Buddy character. Responses 
 
 Output is limited to 60 seconds of PCM so the base64 JSON remains below Vercel's 4.5 MB function response limit. Excess output returns a structured error. [Vercel function limits](https://vercel.com/docs/functions/limitations).
 
-Saved memory, editable characters, durable idempotency and device WebSockets remain available through the optional persistent backend described in [voice-api.md](voice-api.md). Setting `VOICE_SERVICE_URL` switches those endpoints back to proxy mode. Do not set it to this same Vercel app URL, which would create a proxy loop.
+For WebSocket audio on Vercel, follow [native Vercel WebSocket setup](vercel-websocket.md). Saved memory, editable characters and durable idempotency remain available through the optional persistent backend described in [voice-api.md](voice-api.md). Setting `VOICE_SERVICE_URL` switches those endpoints back to proxy mode. Do not set it to this same Vercel app URL, which would create a proxy loop.
 
 Local `npm run dev` still proxies device routes to `npm run voice:server`. To exercise the Vercel-only handlers locally, use Vercel CLI `vercel dev` with `VOICE_SERVICE_URL` unset.

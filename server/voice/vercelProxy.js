@@ -23,6 +23,10 @@ export async function proxyVoiceRequest(req, res, path, methods = ['POST']) {
     res.status(503).json(errorBody(new VoiceError('generation_failed', 'Configure a secure VOICE_SERVICE_URL for the backend.', 503, true))); return
   }
   try {
+    if (base && [req.headers.host, process.env.VERCEL_URL, process.env.VERCEL_PROJECT_PRODUCTION_URL]
+      .filter(Boolean).includes(new URL(base).host)) {
+      throw new VoiceError('generation_failed', 'VOICE_SERVICE_URL must not point to this same deployment. Leave it empty for native Vercel WebSockets.', 503)
+    }
     if (!base) return await handleServerlessVoice(req, res, path)
     let length = 0
     const chunks = []

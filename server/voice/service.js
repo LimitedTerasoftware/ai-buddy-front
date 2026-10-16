@@ -5,8 +5,8 @@ import { DEFAULT_CHARACTER, PERSONALITIES, SKILLS } from './core.js'
 import { VoiceError, authenticate, verifyToken, errorBody, readBody, identifier, decodeAudio,
   pcmToWav, MAX_AUDIO_BYTES } from './protocol.js'
 
-export function createVoiceService({ core, devices, admins = [], websocketUrl, allowedOrigins = [] }) {
-  const tickets = new Map(), connected = new Map(), sockets = new Set()
+export function createVoiceService({ core, devices, admins = [], websocketUrl, allowedOrigins = [], initialTickets = [] }) {
+  const tickets = new Map(initialTickets), connected = new Map(), sockets = new Set()
   const store = core.store
   function send(res, status, data) {
     res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })

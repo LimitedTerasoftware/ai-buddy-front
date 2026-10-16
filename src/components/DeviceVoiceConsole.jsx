@@ -70,7 +70,7 @@ export default function DeviceVoiceConsole() {
     await player.current.resume()
     const recording = new Uint8Array(await file.arrayBuffer())
     const metadata = { device_id: deviceId, profile_id: profileId, character_id: character.character_id,
-      language: character.language, speed: 0.85, ...(sessionId ? { session_id: sessionId } : {}) }
+      language: character.language, speed: 0.85, ...(sessionId && !stateless ? { session_id: sessionId } : {}) }
     const request_id = crypto.randomUUID()
     setBusy(true); setResult(null); setStatus('Processing'); setError('')
     try {
@@ -137,11 +137,11 @@ export default function DeviceVoiceConsole() {
     <div className="device-console-grid">
       <label>Admin credential<input type="password" autoComplete="off" value={adminToken} onChange={event => setAdminToken(event.target.value)} /></label>
       <button onClick={() => action(load)}>Connect / refresh</button>
-      <button onClick={() => { stop(); setSessionId(''); setCharacter(wavCharacter); setData({ mode: 'stateless', characters: [wavCharacter], personalities: ['Friendly'], skills: [], devices: [], turns: [] }) }}>Test WAV upload only</button>
+      <button onClick={() => action(async () => { const health = await api('health'); stop(); setSessionId(''); setCharacter(wavCharacter); setData({ mode: 'stateless', capabilities: health.capabilities, characters: [wavCharacter], personalities: ['Friendly'], skills: [], devices: [], turns: [] }) })}>Test device audio</button>
     </div>
     {error && <p role="alert" className="device-console-error">{error}</p>}
     {data && <>
-      {stateless && <p>WAV uploads use independent turns with the default Buddy character. Saved settings, memory and device WebSockets require a persistent backend. Retrying an upload can incur another provider charge.</p>}
+      {stateless && <p>WAV uploads use independent turns with the default Buddy character. WebSocket conversations last while connected and start fresh on reconnect. Saved settings and memory require a persistent backend. Retrying an upload can incur another provider charge.</p>}
       <h2>Character</h2>
       <label>Selected character<select value={character?.character_id || ''} onChange={event => { stop(); setSessionId(''); setCharacter(data.characters.find(item => item.character_id === event.target.value)) }}>{data.characters.map(item => <option key={item.character_id}>{item.character_id}</option>)}</select></label>
       {character && <fieldset disabled={stateless} className="device-console-grid">
@@ -163,7 +163,7 @@ export default function DeviceVoiceConsole() {
       <p role="status">{status} · Session: {sessionId || 'new'}</p>
       <div className="device-console-actions">
         <button disabled={busy} onClick={() => action(() => test('ptt'))}>Send push-to-talk</button>
-        <button disabled={busy || stateless} onClick={() => action(() => test('websocket'))}>Send WebSocket turn</button>
+        <button disabled={busy || (stateless && !data.capabilities?.websocket)} onClick={() => action(() => test('websocket'))}>Send WebSocket turn</button>
         <button onClick={stop}>Stop / disconnect</button>
         <button onClick={() => { stop(); setSessionId(''); setResult(null) }}>New conversation</button>
       </div>

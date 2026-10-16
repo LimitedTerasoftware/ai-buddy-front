@@ -25,7 +25,7 @@ On PowerShell where script execution is disabled, use `npm.cmd`. The frontend's 
 
 ## Deploy
 
-For **Vercel-only independent WAV uploads**, follow [Vercel WAV deployment and curl tests](vercel-wav.md). Leave `VOICE_SERVICE_URL` empty and configure `OPENAI_API_KEY` plus `VOICE_DEVICES` on Vercel. That mode has no persistent sessions, memory, WebSockets, cross-request rate limiting or retry deduplication. The deployment and continuity guarantees below apply only when using the persistent service.
+For **Vercel-only independent WAV uploads**, follow [Vercel WAV deployment and curl tests](vercel-wav.md). Leave `VOICE_SERVICE_URL` empty and configure `OPENAI_API_KEY` plus `VOICE_DEVICES` on Vercel. Add Redis as described in [native Vercel WebSocket setup](vercel-websocket.md) to enable streaming conversations during one connection. Vercel-only mode has no persistent sessions, memory or durable retry deduplication. The deployment and continuity guarantees below apply only when using the persistent service.
 
 Deploy `server/voice/index.js` as a **single persistent Node process** with an encrypted persistent volume for `VOICE_STORE_PATH`. Set `VOICE_HOST=0.0.0.0` if the host requires it, `VOICE_PORT` to its assigned port, `NODE_ENV=production`, and `VOICE_PUBLIC_WS_URL=wss://YOUR_VOICE_HOST/v1/voice/stream`. Terminate TLS at the hosting ingress and forward WebSocket upgrades. Permit only your console origin in `FRONTEND_ORIGIN` (comma-separated). Exclude Authorization and Sec-WebSocket-Protocol headers, audio bodies, query parameters, and transcripts from ingress/access logs.
 
@@ -100,6 +100,8 @@ Reuse exactly the same metadata and WAV for a network retry. Within 24 hours a r
 If a request may have reached a provider but did not complete, the persistent reservation yields `request_interrupted` for retries rather than silently charging again. Start a deliberate new recording with a new key. Idempotency keys expire after 24 hours and must never be reused for a new turn. Sessions also expire after 24 hours; only the most recent ten completed turns are passed to the model. Expired sessions get `session_expired` and must be replaced.
 
 ## API B: WebSocket session and streaming
+
+For a backend deployed on Vercel, use [native Vercel WebSocket setup](vercel-websocket.md). It supports conversation history during one connection, with Redis-backed one-use credentials. The persistent service's reconnect and durability guarantees below do not apply to native Vercel mode.
 
 First obtain a credential:
 
