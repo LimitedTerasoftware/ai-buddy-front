@@ -194,7 +194,7 @@ export default function VoiceView() {
         session: {
           type: 'realtime',
           instructions: getChildInstructions(classId),
-          audio: { output: { speed: speechSpeed }, input: { transcription: { model: 'gpt-4o-mini-transcribe' }, turn_detection: { type: 'semantic_vad', eagerness: 'low' } } }
+          audio: { output: { speed: speechSpeed }, input: { transcription: { model: 'gpt-4o-mini-transcribe' }, turn_detection: { type: 'semantic_vad', eagerness: 'high' } } }
         }
       }))
     }

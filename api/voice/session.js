@@ -30,7 +30,7 @@ export default async function handler(req, res) {
     const data = await createRealtimeClientSecret(req, buildRealtimeSession({
       instructions: getInstructions(body.instructions),
       speed: parseSpeed(body.speed),
-      turnDetection: { type: 'semantic_vad', eagerness: 'low' }
+      turnDetection: { type: 'semantic_vad', eagerness: 'high' }
     }))
 
     res.status(200).json(data)
