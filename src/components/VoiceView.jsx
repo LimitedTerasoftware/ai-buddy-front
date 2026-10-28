@@ -385,13 +385,25 @@ export default function VoiceView() {
     setError('')
     setConversation([])
 
+    // Request microphone access at the same time as the session credential.
+    // The old sequence waited for the API before starting the browser prompt.
+    let mediaStream
+    const mediaPromise = navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+      mediaStream = stream
+      if (sessionAttemptRef.current !== attempt || controller.signal.aborted) {
+        stream.getTracks().forEach(track => track.stop())
+        throw new DOMException('Voice session was cancelled.', 'AbortError')
+      }
+      return stream
+    })
+
     try {
-      const sessionResponse = await fetch(VOICE_SESSION_URL, {
+      const [sessionResponse, readyMediaStream] = await Promise.all([fetch(VOICE_SESSION_URL, {
         signal: controller.signal,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ instructions: getChildInstructions(classId), speed: speechSpeed })
-      })
+      }), mediaPromise])
       const sessionText = await sessionResponse.text()
       if (sessionAttemptRef.current !== attempt) return
       let session
@@ -426,13 +438,12 @@ export default function VoiceView() {
         if (['failed', 'closed', 'disconnected'].includes(pc.connectionState) && pcRef.current === pc) stopSession()
       }
 
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true })
       if (sessionAttemptRef.current !== attempt) {
-        mediaStream.getTracks().forEach(track => track.stop())
+        readyMediaStream.getTracks().forEach(track => track.stop())
         return
       }
-      streamRef.current = mediaStream
-      mediaStream.getTracks().forEach(track => pc.addTrack(track, mediaStream))
+      streamRef.current = readyMediaStream
+      readyMediaStream.getTracks().forEach(track => pc.addTrack(track, readyMediaStream))
 
       const dataChannel = pc.createDataChannel('oai-events')
       dataChannelRef.current = dataChannel
@@ -559,6 +570,10 @@ export default function VoiceView() {
       if (sessionAttemptRef.current !== attempt) return
       setStatus('connected')
     } catch (err) {
+      // If the session request fails before the permission prompt resolves, still
+      // stop any stream returned later so the microphone is never left active.
+      mediaPromise.then(stream => stream.getTracks().forEach(track => track.stop())).catch(() => {})
+      mediaStream?.getTracks().forEach(track => track.stop())
       if (sessionAttemptRef.current !== attempt) return
       console.error('Voice session error', err)
       setError(err.message || 'Failed to start voice session')
